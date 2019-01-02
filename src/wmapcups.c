@@ -1,18 +1,20 @@
 /* -*- Mode: C; fill-column: 79 -*-
+ * wmapcups: windowmaker dockapp showing some APC UPS stats.
+ * Copyright (C) 2019 Anil N <anilknyn@yahoo.com>
  *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License as published by the Free Software
- * Foundation; either version 2 of the License, or (at your option) any later
- * version.
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 #include <stdlib.h>
@@ -28,9 +30,7 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/shape.h>
 
-#define VERSION "0.1"
-#define NAME    "wmapcups"
-
+#include "upsfetch.h"
 #include "base.xpm"
 
 typedef struct Sprite {
@@ -62,7 +62,20 @@ static const int GLYPH_HYPHEN = 10;
 
 static DAShapedPixmap *back_pm = NULL, *all_pm = NULL;
 static Pixmap charge_mask = 0;
-static DAProgramOption DAPoptions[] = { };
+
+static char apc_nis_hostname_default[] = "127.0.0.1";
+static char *apc_nis_hostname = apc_nis_hostname_default;
+static int apc_nis_portnum = 3551;
+static int apc_nis_testonly = 0;
+
+static DAProgramOption DAPoptions[] = {
+    {"-H", "--apc-nis-host", "Hostname for the APC UPS daemon running in NIS mode",
+     DOString, False, { .string = &apc_nis_hostname } },
+    {"-P", "--apc-nis-port", "Port number to use for connecting to APC UPS daemon",
+     DONatural, False, { &apc_nis_portnum } },
+    {"-t", "--test-nis", "Check if the dockapp can fetch UPS details.",
+     DONone, False, { NULL } },
+};
 
 void setup(int ac, char *av[])
 {
@@ -212,12 +225,13 @@ void show_error()
                  sprite_error.x, sprite_error.y);
 }
 
-void test()
+#if 0
+void test_ui()
 {
-static int test_val = 0;
-static int test_blink = 1;
-static int test_blink_counter = 0;
-static int test_error = 0;
+    static int test_val = 0;
+    static int test_blink = 1;
+    static int test_blink_counter = 0;
+    static int test_error = 0;
 
     test_val += 3;
     test_val = test_val % 101;
@@ -233,25 +247,62 @@ static int test_error = 0;
         test_error = test_error + 1;
     }
     show_linestatus(test_blink);
-    show_charging(test_blink);
     show_charge_bar(test_val);
+    show_charging(test_blink);
 
     /* if ((test_error % 4) == 0) { */
     /*     show_error(); */
     /* } */
 }
+#endif
+
+void update_ui()
+{
+    static int test_blink_counter = 0;
+    static int test_blink = 0;
+
+    show_num(ups.fields[STAT_LINEV].i, &sprite_linev);
+    show_num(ups.fields[STAT_TIMELEFT].i, &sprite_timeleft);
+    show_num(ups.fields[STAT_CHARGE].i, &sprite_bcharge);
+
+    test_blink_counter = test_blink_counter + 1;
+    if (test_blink_counter > 10) {
+        test_blink_counter = 0;
+        test_blink ^= 1;
+    }
+    show_linestatus(ups.fields[STAT_ONLINE].i);
+    show_charge_bar(ups.fields[STAT_CHARGE].i);
+    show_charging(ups.fields[STAT_CHARGING].i & test_blink);
+}
 
 void update()
 {
+    static int update_counter = 0;
     DASPCopyArea(back_pm, all_pm, 0, 0, SIZE, SIZE, 0, 0);
 
-    test();
+    /* FIXME: Async-ize this.
+     * Once in around 15 seconds: i.e. once in 75 UI update calls at 200ms
+     * interval. */
+    if (update_counter >= 75) {
+        update_counter = 0;
+        get_status_from_apc_nis_server("192.168.1.22", 3551);
+    }
+    update_counter ++;
+
+    if (EXPECTED_FIELDS != (ups.field_bitmap & EXPECTED_FIELDS))
+    {
+        show_error();
+    }
+    else {
+        update_ui();
+    }
 
     DASPSetPixmap(all_pm);
 }
 
 int main(int argc, char *argv[])
 {
+    int rc = EXIT_FAILURE;
     DACallbacks eventCallbacks = {
         shutdown,
         NULL,
@@ -264,11 +315,22 @@ int main(int argc, char *argv[])
 
     DAParseArguments(argc, argv, DAPoptions,
                      sizeof(DAPoptions)/sizeof(DAProgramOption),
-                     "APC UPS status, Anil N <anilknyn@yahoo.com>\n",
-                     "This is " NAME " " VERSION "\n");
+                     "Windowmanager dockapp showing APC UPS status\n"
+                     "Uses apcupsd running in NIS mode. Report bugs to "
+                     PACKAGE_BUGREPORT ".\n",
+                     "This is " PACKAGE_NAME " " PACKAGE_VERSION "\n");
+    apc_nis_testonly = DAPoptions[2].used;
+
+    rc = get_status_from_apc_nis_server(apc_nis_hostname, apc_nis_portnum);
+    if (apc_nis_testonly)
+    {
+        if (rc != EXIT_FAILURE)
+            dumpStat(&ups);
+        return EXIT_SUCCESS;
+    }
 
     DASetExpectedVersion(20050716);
-    DAInitialize("", NAME, 64, 64, argc, argv);
+    DAInitialize("", PACKAGE_NAME, 64, 64, argc, argv);
     setup(argc, argv);
 
     DASetCallbacks(&eventCallbacks);
