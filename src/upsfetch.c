@@ -129,10 +129,12 @@ int grok_line(char *p_line)
                 }
                 else /* Presense of a string in value */
                 {
+                    ups_updating.fields[field_labels[i].index].i = 0;
                     for (j=1; j<t_count; j++)
                     {
-                        ups_updating.fields[field_labels[i].index].i |=
-                            (NULL != strstr(tokens[j],field_labels[i].search_token));
+                        ups_updating.fields[field_labels[i].index].i =
+                            ups_updating.fields[field_labels[i].index].i
+                            || (NULL != strstr(tokens[j],field_labels[i].search_token));
                     }
                     ups_updating.field_bitmap |= (1 << field_labels[i].index);
                 }
@@ -264,11 +266,6 @@ int get_status_from_apc_nis_server(const char *hostname, unsigned short port)
 
     if (sfd != -1) {
         fe = get_status(sfd);
-        if (fe != FE_OK) {
-            fprintf(stderr, "Fetch error = %d\n", fe);
-        }
-    } else {
-        fprintf(stderr, "Could not connect.\n", fe);
     }
 
 Error:
