@@ -34,26 +34,28 @@
 #include "base.xpm"
 
 typedef struct Sprite {
-    int x, y;
-    int rx, ry;
-    int w, h;
-    int stride;
+    int x, y;    /* Coords to blit 'to' */
+    int rx, ry;  /* Coords to fetch glyphs from */
+    int w, h;    /* Dimensions of a glyph */
+    int stride;  /* Value to increment rx to fetch next glyph in a 'font' set */
 } Sprite;
 
 /* % Charge, Big 3 digit */
 Sprite sprite_bcharge  = { 22,  8,  0,  64, 10, 18, 10 };
 /* Line Voltage, Small 3 digit */
-Sprite sprite_linev    = { 22, 31,  0,  83,  6,  9,  7 };
-/* Time left, Small 3 digit */
-Sprite sprite_timeleft = { 22, 45,  0,  83,  6,  9,  7 };
+Sprite sprite_linev    = { 31, 29,  0,  83,  6,  9,  7 };
+/* Time left, Tiny 3 digit */
+Sprite sprite_timeleft = { 34, 47,  0, 119,  5,  7,  6 };
+/* Load Percent, Tiny 3 digit */
+Sprite sprite_loadpct  = {  8, 47,  0, 119,  5,  7,  6 };
 /* Online/Offline indicator - 2 state */
-Sprite sprite_online   = {  7, 46,  0, 108, 13,  9, 13 };
+Sprite sprite_online   = { 22, 30,  0, 108,  8,  9,  8 };
 /* Charging/Not-charging indicator - 2 state, Overlaid */
-Sprite sprite_charging = { 10, 21,  0,  93,  7, 14,  7 };
-
+Sprite sprite_charging = { 10, 18,  0,  93,  7, 12,  7 };
+/* A full tile pixmap showing error msg */
 Sprite sprite_error    = {  0,  0, 64, 128, 64, 64, 64 };
 /* Battery bar */
-Sprite sprite_bar      = { 10, 13, 64,  96,  7, 28,  7 };
+Sprite sprite_bar      = { 10, 13, 64,  96,  7, 23,  7 };
 
 static const int PERIOD = 200;
 static const int SIZE = 64;
@@ -225,7 +227,7 @@ void show_error()
                  sprite_error.x, sprite_error.y);
 }
 
-#if 0
+#ifdef TEST_UI
 void test_ui()
 {
     static int test_val = 0;
@@ -238,6 +240,7 @@ void test_ui()
 
     show_num(test_val * 20, &sprite_linev);
     show_num(test_val * 20, &sprite_timeleft);
+    show_num(test_val * 20, &sprite_loadpct);
     show_num(test_val, &sprite_bcharge);
 
     test_blink_counter = test_blink_counter + 1;
@@ -250,9 +253,9 @@ void test_ui()
     show_charge_bar(test_val);
     show_charging(test_blink);
 
-    /* if ((test_error % 4) == 0) { */
-    /*     show_error(); */
-    /* } */
+    if ((test_error % 4) == 0) {
+        show_error();
+    }
 }
 #endif
 
@@ -264,14 +267,14 @@ void update_ui()
     show_num(ups.fields[STAT_LINEV].i, &sprite_linev);
     show_num(ups.fields[STAT_TIMELEFT].i, &sprite_timeleft);
     show_num(ups.fields[STAT_CHARGE].i, &sprite_bcharge);
-
+    show_num(ups.fields[STAT_LOADPCT].i, &sprite_loadpct);
+    show_linestatus(ups.fields[STAT_ONLINE].i);
+    show_charge_bar(ups.fields[STAT_CHARGE].i);
     test_blink_counter = test_blink_counter + 1;
     if (test_blink_counter > 10) {
         test_blink_counter = 0;
         test_blink ^= 1;
     }
-    show_linestatus(ups.fields[STAT_ONLINE].i);
-    show_charge_bar(ups.fields[STAT_CHARGE].i);
     show_charging(ups.fields[STAT_CHARGING].i & test_blink);
 }
 
@@ -280,6 +283,9 @@ void update()
     static int update_counter = 0;
     DASPCopyArea(back_pm, all_pm, 0, 0, SIZE, SIZE, 0, 0);
 
+#ifdef TEST_UI
+    test_ui();
+#else
     /* FIXME: Async-ize this.
      * Once in around 15 seconds: i.e. once in 75 UI update calls at 200ms
      * interval. */
@@ -296,6 +302,7 @@ void update()
     else {
         update_ui();
     }
+#endif
 
     DASPSetPixmap(all_pm);
 }
@@ -321,6 +328,7 @@ int main(int argc, char *argv[])
                      "This is " PACKAGE_NAME " " PACKAGE_VERSION "\n");
     apc_nis_testonly = DAPoptions[2].used;
 
+#ifndef TEST_UI
     rc = get_status_from_apc_nis_server(apc_nis_hostname, apc_nis_portnum);
     if (apc_nis_testonly)
     {
@@ -328,6 +336,7 @@ int main(int argc, char *argv[])
             dumpStat(&ups);
         return EXIT_SUCCESS;
     }
+#endif
 
     DASetExpectedVersion(20050716);
     DAInitialize("", PACKAGE_NAME, 64, 64, argc, argv);
