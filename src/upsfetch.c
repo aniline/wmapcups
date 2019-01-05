@@ -81,7 +81,7 @@ void deriveDerivedFields(UPSStatus *u)
 
 void clearStat(UPSStatus *u)
 {
-    memset(&u, 0, sizeof(UPSStatus));
+    memset(u, 0, sizeof(UPSStatus));
 }
 
 /* Updates ups_updating.fields when called with interesting status

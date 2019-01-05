@@ -65,10 +65,12 @@ static const int GLYPH_HYPHEN = 10;
 static DAShapedPixmap *back_pm = NULL, *all_pm = NULL;
 static Pixmap charge_mask = 0;
 
-static char apc_nis_hostname_default[] = "127.0.0.1";
+static char  apc_nis_hostname_default[] = "127.0.0.1";
 static char *apc_nis_hostname = apc_nis_hostname_default;
-static int apc_nis_portnum = 3551;
-static int apc_nis_testonly = 0;
+static char  apc_wmname_prefix_default[] = "";
+static char *apc_wmname_prefix = apc_wmname_prefix_default;
+static int   apc_nis_portnum = 3551;
+static int   apc_nis_testonly = 0;
 
 static DAProgramOption DAPoptions[] = {
     {"-H", "--apc-nis-host", "Hostname for the APC UPS daemon running in NIS mode",
@@ -77,9 +79,11 @@ static DAProgramOption DAPoptions[] = {
      DONatural, False, { &apc_nis_portnum } },
     {"-t", "--test-nis", "Check if the dockapp can fetch UPS details.",
      DONone, False, { NULL } },
+    {NULL, "--window-name-prefix", "Prefix the window name with provided string (useful sometimes with -w option)",
+     DOString, False, { .string = &apc_wmname_prefix } },
 };
 
-void setup(int ac, char *av[])
+static void setup(int ac, char *av[])
 {
     XGCValues gcv;
     unsigned long gcm;
@@ -96,14 +100,16 @@ void setup(int ac, char *av[])
 
     /* Target drawable */
     all_pm = DAMakeShapedPixmap();
+
+    /* For shaped window */
     XShapeCombineMask(DADisplay, DAWindow, ShapeBounding, 0, 0, back_pm->shape, ShapeSet);
 }
 
-void shutdown(void)
+static void cleanup(void)
 {
-    DAFreeShapedPixmap(all_pm);
-    DAFreeShapedPixmap(back_pm);
-    XFreePixmap(DADisplay, charge_mask);
+    if (all_pm) { DAFreeShapedPixmap(all_pm); all_pm = NULL; }
+    if (back_pm) { DAFreeShapedPixmap(back_pm); back_pm = NULL; }
+    if (charge_mask) { XFreePixmap(DADisplay, charge_mask); charge_mask = 0; }
 }
 
 void clear_digits(int *digits, int num_digits)
@@ -291,7 +297,7 @@ void update()
      * interval. */
     if (update_counter >= 75) {
         update_counter = 0;
-        get_status_from_apc_nis_server("192.168.1.22", 3551);
+        get_status_from_apc_nis_server(apc_nis_hostname, apc_nis_portnum);
     }
     update_counter ++;
 
@@ -310,8 +316,10 @@ void update()
 int main(int argc, char *argv[])
 {
     int rc = EXIT_FAILURE;
+#define _WM_NAME_MAX 64
+    char window_name[_WM_NAME_MAX] = PACKAGE_NAME;
     DACallbacks eventCallbacks = {
-        shutdown,
+        cleanup,
         NULL,
         NULL,
         NULL,
@@ -328,6 +336,9 @@ int main(int argc, char *argv[])
                      "This is " PACKAGE_NAME " " PACKAGE_VERSION "\n");
     apc_nis_testonly = DAPoptions[2].used;
 
+    if (DAPoptions[3].used)
+        snprintf(window_name, _WM_NAME_MAX, "%s%s", apc_wmname_prefix, PACKAGE_NAME);
+
 #ifndef TEST_UI
     rc = get_status_from_apc_nis_server(apc_nis_hostname, apc_nis_portnum);
     if (apc_nis_testonly)
@@ -339,7 +350,7 @@ int main(int argc, char *argv[])
 #endif
 
     DASetExpectedVersion(20050716);
-    DAInitialize("", PACKAGE_NAME, 64, 64, argc, argv);
+    DAInitialize("", window_name, 64, 64, argc, argv);
     setup(argc, argv);
 
     DASetCallbacks(&eventCallbacks);
